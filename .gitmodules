@@ -1,0 +1,3 @@
+[submodule "pycycling"]
+	path = pycycling
+	url = https://github.com/zacharyedwardbull/pycycling.git
