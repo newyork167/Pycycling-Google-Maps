@@ -13,4 +13,6 @@ else
 fi
 
 # Run setup.py
-python pycycling/setup.py develop
+cd pycycling
+python setup.py develop
+cd -

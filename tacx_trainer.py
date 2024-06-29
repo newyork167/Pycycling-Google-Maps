@@ -10,12 +10,15 @@ from pycycling.battery_service import BatteryService
 # TODO(cody): Add ability to select trainer and HR monitor from list of available devices
 POLAR_HR_CONTROL_POINT_UUID = "3E4F72D6-D632-1157-0BCD-5B5C673653AE"
 TACX_TRAINER_CONTROL_UUID = "8B9E4197-3BA0-39EF-1290-F82450B4DC00"
-        
 
-async def run():
+
+async def discover_bluetooth_devices():
     devices = await BleakScanner.discover()
     for d in devices:
         print(d)
+
+
+async def run():
     async with BleakClient(TACX_TRAINER_CONTROL_UUID) as trainer_client, BleakClient(POLAR_HR_CONTROL_POINT_UUID) as polar_client:
         clients = []
         pycycling_clients = []
@@ -24,29 +27,16 @@ async def run():
             await trainer_client.is_connected()
             await polar_client.is_connected()
 
-            clients = [trainer_client, polar_client]
-            return [TacxTrainerControl(trainer_client), HeartRateService(polar_client)]
+            trainer_device, hr_device = TacxTrainer(trainer_client, trainer), PolarHRMonitor(polar_client, hr_device)
+            await trainer_device.on_connect()
+            await hr_device.on_connect()
 
-        async def setup_trainer(trainer: TacxTrainerControl):
-            trainer.set_specific_trainer_data_page_handler(trainer_page_handler)
-            trainer.set_general_fe_data_page_handler(trainer_page_handler)
-            await trainer.enable_fec_notifications()
-        
-        async def setup_hr_monitor(hr_monitor: HeartRateService, polar_client: BleakClient):
-            hr_monitor.set_hr_measurement_handler(heart_rate_page_handler)
-            await polar_hr.enable_hr_measurement_notifications()
-            await polar_client.check_hr_battery()
+            # return [TacxTrainerControl(trainer_client), HeartRateService(polar_client)]
+            return trainer_device, hr_device
 
         async def disconnect_clients():
             for pycycling_client in pycycling_clients:
-                if isinstance(pycycling_client, TacxTrainerControl):
-                    await pycycling_client.disable_fec_notifications()
-                elif isinstance(pycycling_client, HeartRateService):
-                    await pycycling_client.disable_hr_measurement_notifications()
-
-            for client in clients:
-                if client.is_connected():
-                    await client.disconnect()
+                await pycycling_client.on_disconnect()
 
         def trainer_page_handler(data):
             print(data)
@@ -54,12 +44,9 @@ async def run():
         def heart_rate_page_handler(data):
             print(data)
 
-        trainer, polar_hr = await connect_clients()
-        # trainer = TacxTrainerControl(trainer_client)
-        # polar_hr = HeartRateService(polar_client)
-
-        await setup_trainer(trainer=trainer)
-        await setup_hr_monitor(hr_monitor=polar_hr, polar_client=polar_client)
+        trainer, hr_device = await connect_clients()
+        await trainer.setup_trainer(trainer_page_handler=trainer_page_handler)
+        await hr_device.setup_hr_monitor(heart_rate_page_handler=heart_rate_page_handler)
 
         await trainer.set_basic_resistance(20)
         await asyncio.sleep(5.0)
@@ -83,4 +70,5 @@ if __name__ == "__main__":
     os.environ["PYTHONASYNCIODEBUG"] = str(1)
 
     loop = asyncio.get_event_loop()
+    loop.run_until_complete(discover_bluetooth_devices())
     loop.run_until_complete(run())
