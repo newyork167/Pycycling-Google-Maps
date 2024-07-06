@@ -7,6 +7,7 @@ class TrainingPlan(Model):
     segments = fields.ManyToManyField('models.Segment', related_name='training_plans')
 
 class SegmentDuration(Model):
-    segment_id = fields.IntField(pk=True)
-    segment_name = fields.CharField(max_length=255)
-    segment_duration = fields.IntField()
+    id = fields.IntField(pk=True)
+    name = fields.CharField(max_length=255)
+    duration = fields.IntField()
+    resistance = fields.IntField()
