@@ -1,31 +1,29 @@
 import asyncio
+import logging
 
-from tkinter import Tk, Button
-from bleak import BleakClient, BleakScanner, BLEDevice
+from tkinter import Button, END, Listbox, MULTIPLE
+from bleak import BleakClient, BleakScanner
 from tortoise import Tortoise
-from tortoise.query_utils import Prefetch
 
-from db_models.TrainingPlan import TrainingPlan, SegmentDuration
-from devices import TacxTrainer, PolarHRMonitor, TrainingDevice
+from devices.TacxTrainer import TacxTrainer
+from devices.PolarHRMonitor import PolarHRMonitor
+from devices.TrainingDevice import TrainingDevice
 from gui.AsyncTk import AsyncTk
 
 from pycycling.tacx_trainer_control import TacxTrainerControl
 from pycycling.heart_rate_service import HeartRateService
-
+from training_plans.test_plan import TestPlan
+from utilities.Observable import Observable
 
 # TODO(cody): Add ability to select trainer and HR monitor from list of available devices
 POLAR_HR_CONTROL_POINT_UUID = "3E4F72D6-D632-1157-0BCD-5B5C673653AE"
 TACX_TRAINER_CONTROL_UUID = "8B9E4197-3BA0-39EF-1290-F82450B4DC00"
 
 
-class BluetoothHandler:
-    devices = []
-
+class BluetoothHandler(Observable):
     async def discover_bluetooth_devices(self) -> None:
         self.devices = await BleakScanner.discover()
-
-        for d in self.devices:
-            print(d)
+        self.notify(devices=self.devices)
 
 class App(AsyncTk):
     def __init__(self):
@@ -36,19 +34,43 @@ class App(AsyncTk):
         self.current_cadence_label = None
         self.current_speed_label = None
         self.current_hr_label = None
-        self.bluetooth_handler = BluetoothHandler()
+        self.bluetooth_selector_box = None
 
+        # Set up logging
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.DEBUG)
+        logging_file_handler = logging.FileHandler('trkr_trainr.log')
+        logging_file_handler.setLevel(logging.DEBUG)
+        logging_stream_handler = logging.StreamHandler()
+        logging_stream_handler.setLevel(logging.DEBUG)
+        logging_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        logging_stream_handler.setFormatter(logging_formatter)
+        logging_file_handler.setFormatter(logging_formatter)
+        self.logger.addHandler(logging_stream_handler)
+        self.logger.addHandler(logging_file_handler)
+
+        # Register bluetooth handler
+        self.bluetooth_handler = BluetoothHandler()
+        self.bluetooth_handler.register(self.bluetooth_notification_received)
+
+        # Kickoff the async event loops
         self.create_interface()
         self.runners.append(self.start())
         self.runners.append(self.setup_tortoise())
         self.runners.append(self.bluetooth_handler.discover_bluetooth_devices())
 
     def create_interface(self):
+        # Need a reference for the observer to update
+        self.bluetooth_selector_box = Listbox(
+            master=self, selectmode=MULTIPLE, height=10, width=50)
+        self.bluetooth_selector_box.pack()
+
+        # Don't need references to these
         Button(master=self,
                text="Get Test Plan!",
                width=25,
                height=5,
-               command=lambda: self.add_button_coro(self.test_plan())
+               command=lambda: self.add_button_coro(TestPlan.generate())
         ).pack()
 
         Button(master=self,
@@ -83,10 +105,10 @@ class App(AsyncTk):
             await pycycling_client.on_disconnect()
 
     def trainer_page_handler(self, data):
-        print(data)
+        self.logger.info(data)
 
     def heart_rate_page_handler(self, data):
-        print(data)
+        self.logger.info(data)
 
         if self.current_hr_label:
             self.current_hr_label.config(text=data['heart_rate'])
@@ -100,36 +122,18 @@ class App(AsyncTk):
                 await trainer.setup_page_handler(page_handler=self.trainer_page_handler)
                 await hr_device.setup_page_handler(page_handler=self.heart_rate_page_handler)
 
-                training_plan = await self.test_plan()
+                training_plan = await TestPlan.generate()
 
                 for segment in training_plan.segments:
                     await trainer.pycycling_client.set_basic_resistance(segment.resistance)
                     await asyncio.sleep(segment.duration)
         except Exception as ex:
-            print(ex)
+            self.logger.info(ex)
 
-    async def test_plan(self) -> TrainingPlan:
-        # Check for saved training plans
-        test_plan = await TrainingPlan.filter(name__contains='test plan').first().prefetch_related("segments")
-
-        if not test_plan:
-            print('Creating test plan')
-
-            test_plan = await TrainingPlan.create(name="test plan")
-            await SegmentDuration.create(name="Warmup", duration=10, resistance=20, training_plan=test_plan)
-            await SegmentDuration.create(name="Uphill 1", duration=10, resistance=40, training_plan=test_plan)
-            await SegmentDuration.create(name="Downhill 1", duration=10, resistance=30, training_plan=test_plan)
-            await SegmentDuration.create(name="Uphill 2", duration=10, resistance=40, training_plan=test_plan)
-            await SegmentDuration.create(name="Downhill 2", duration=10, resistance=30, training_plan=test_plan)
-            await SegmentDuration.create(name="Cooldown", duration=10, resistance=20, training_plan=test_plan)
-            await test_plan.save()
-
-            test_plan = await TrainingPlan.first().prefetch_related("segments")
-
-        for segment in test_plan.segments:
-            print(segment)
-
-        return test_plan
+    def bluetooth_notification_received(self, devices):
+        for device in devices:
+            self.logger.info(device)
+            self.bluetooth_selector_box.insert(END, device.name)
 
 
 async def main():
