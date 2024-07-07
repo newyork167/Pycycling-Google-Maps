@@ -2,9 +2,12 @@ import asyncio
 
 from tkinter import Tk, Button
 from bleak import BleakClient, BleakScanner, BLEDevice
+from tortoise import Tortoise
+from tortoise.query_utils import Prefetch
 
-from Models.TrainingPlan import TrainingPlan, SegmentDuration
+from db_models.TrainingPlan import TrainingPlan, SegmentDuration
 from devices import TacxTrainer, PolarHRMonitor, TrainingDevice
+from gui.AsyncTk import AsyncTk
 
 from pycycling.tacx_trainer_control import TacxTrainerControl
 from pycycling.heart_rate_service import HeartRateService
@@ -24,80 +27,42 @@ class BluetoothHandler:
         for d in self.devices:
             print(d)
 
-class AsyncTk(Tk):
-    "Basic Tk with an asyncio-compatible event loop"
-    def __init__(self):
-        super().__init__()
-        self.running = True
-        self.runners = [self.tk_loop()]
-        self.button_presses = []
-
-    async def tk_loop(self):
-        "asyncio 'compatible' tk event loop?"
-        # Is there a better way to trigger loop exit than using a state vrbl?
-        while self.running:
-            self.update()
-            await asyncio.sleep(0.05) # obviously, sleep time could be parameterized
-            if len(self.button_presses) > 0:
-                await self.button_presses.pop(0)
-
-    def stop(self):
-        self.running = False
-
-    async def run(self):
-        await asyncio.gather(*self.runners)
-
-    def add_button_coro(self, coro):
-        task = asyncio.create_task(coro)
-        self.button_presses.append(task)
-
 class App(AsyncTk):
     def __init__(self):
         super().__init__()
 
-        # self.window: tk.Tk = tk.Tk()
         self.pycycling_clients = []
 
         self.current_cadence_label = None
         self.current_speed_label = None
         self.current_hr_label = None
+        self.bluetooth_handler = BluetoothHandler()
+
         self.create_interface()
         self.runners.append(self.start())
-        self.runners.append(BluetoothHandler().discover_bluetooth_devices())
+        self.runners.append(self.setup_tortoise())
+        self.runners.append(self.bluetooth_handler.discover_bluetooth_devices())
 
     def create_interface(self):
-        Button(
-            text="Click me!",
-            width=25,
-            height=5,
-            bg="blue",
-            fg="yellow",
-        ).pack()
-        b1 = Button(master=self, text='Random Float',
-                    command=lambda: self.add_button_coro(self.test_plan()))
-        b1.pack()
-        b2 = Button(master=self, text='Quit', command=self.stop)
-        b2.pack()
-
-    async def setup_tkinter_window(self):
-        # Setup tkinter window
-        # self.window.title("Pycycling")
-        # self.window.geometry("800x600")
-
-        Button(
-            text="Click me!",
-            width=25,
-            height=5,
-            bg="blue",
-            fg="yellow",
+        Button(master=self,
+               text="Get Test Plan!",
+               width=25,
+               height=5,
+               command=lambda: self.add_button_coro(self.test_plan())
         ).pack()
 
-        # while True:
-        #     self.window.update()
+        Button(master=self,
+               text='Quit',
+               command=self.stop
+        ).pack()
 
-    async def main(self):
-        await self.setup_tkinter_window()
-        await self.run()
+    async def setup_tortoise(self):
+        await Tortoise.init(
+            db_url='sqlite://db.sqlite3',
+            modules={'models': ['models']}
+        )
+        # Generate the schema
+        await Tortoise.generate_schemas()
 
     async def connect_clients(self, trainer_client: BleakClient, polar_client: BleakClient) -> list[TrainingDevice]:
         # Generalize later
@@ -128,7 +93,6 @@ class App(AsyncTk):
 
     async def start(self):
         try:
-            # TODO(cody): Make this a class, for now just making it a basic function for the final
             async with BleakClient(TACX_TRAINER_CONTROL_UUID) as trainer_client, BleakClient(POLAR_HR_CONTROL_POINT_UUID) as polar_client:
                 trainer, hr_device = await self.connect_clients(trainer_client=trainer_client, polar_client=polar_client)
                 self.pycycling_clients += [trainer, hr_device]
@@ -146,20 +110,21 @@ class App(AsyncTk):
 
     async def test_plan(self) -> TrainingPlan:
         # Check for saved training plans
-        test_plan = await TrainingPlan.filter(name__contains='test plan').first()
+        test_plan = await TrainingPlan.filter(name__contains='test plan').first().prefetch_related("segments")
 
         if not test_plan:
             print('Creating test plan')
-            test_plan = await TrainingPlan.create(name='test plan')
-            test_plan.segments.add(SegmentDuration(name='Warmup', duration=10, resistance=20))
-            test_plan.segments.add(SegmentDuration(name='Uphill 1', duration=10, resistance=40))
-            test_plan.segments.add(SegmentDuration(name='Downhill 1', duration=10, resistance=30))
-            test_plan.segments.add(SegmentDuration(name='Uphill 2', duration=10, resistance=50))
-            test_plan.segments.add(SegmentDuration(name='Downhill 2', duration=10, resistance=30))
-            test_plan.segments.add(SegmentDuration(name='Uphill 3', duration=10, resistance=60))
-            test_plan.segments.add(SegmentDuration(name='Downhill 3', duration=10, resistance=30))
-            test_plan.segments.add(SegmentDuration(name='Cooldown', duration=10, resistance=20))
+
+            test_plan = await TrainingPlan.create(name="test plan")
+            await SegmentDuration.create(name="Warmup", duration=10, resistance=20, training_plan=test_plan)
+            await SegmentDuration.create(name="Uphill 1", duration=10, resistance=40, training_plan=test_plan)
+            await SegmentDuration.create(name="Downhill 1", duration=10, resistance=30, training_plan=test_plan)
+            await SegmentDuration.create(name="Uphill 2", duration=10, resistance=40, training_plan=test_plan)
+            await SegmentDuration.create(name="Downhill 2", duration=10, resistance=30, training_plan=test_plan)
+            await SegmentDuration.create(name="Cooldown", duration=10, resistance=20, training_plan=test_plan)
             await test_plan.save()
+
+            test_plan = await TrainingPlan.first().prefetch_related("segments")
 
         for segment in test_plan.segments:
             print(segment)
@@ -178,8 +143,3 @@ if __name__ == "__main__":
     os.environ["PYTHONASYNCIODEBUG"] = str(1)
 
     asyncio.run(main())
-
-    # loop = asyncio.get_event_loop()
-    # loop.create_task(app.run())
-    # loop.create_task(BluetoothHandler().discover_bluetooth_devices())
-    # loop.run_forever()
