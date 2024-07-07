@@ -1,6 +1,6 @@
 import asyncio
 
-import tkinter as tk
+from tkinter import Tk, Button
 from bleak import BleakClient, BleakScanner, BLEDevice
 
 from Models.TrainingPlan import TrainingPlan, SegmentDuration
@@ -24,23 +24,53 @@ class BluetoothHandler:
         for d in self.devices:
             print(d)
 
-class App:
+class AsyncTk(Tk):
+    "Basic Tk with an asyncio-compatible event loop"
     def __init__(self):
-        self.window: tk.Tk = tk.Tk()
+        super().__init__()
+        self.running = True
+        self.runners = [self.tk_loop()]
+
+    async def tk_loop(self):
+        "asyncio 'compatible' tk event loop?"
+        # Is there a better way to trigger loop exit than using a state vrbl?
+        while self.running:
+            self.update()
+            await asyncio.sleep(0.05) # obviously, sleep time could be parameterized
+
+    def stop(self):
+        self.running = False
+
+    async def run(self):
+        await asyncio.gather(*self.runners)
+
+class App(AsyncTk):
+    def __init__(self):
+        super().__init__()
+
+        # self.window: tk.Tk = tk.Tk()
         self.pycycling_clients = []
 
         self.current_cadence_label = None
         self.current_speed_label = None
         self.current_hr_label = None
+        self.create_interface()
+        self.runners.append(self.start())
+        self.runners.append(BluetoothHandler().discover_bluetooth_devices())
+
+    def create_interface(self):
+        b1 = Button(master=self, text='Random Float',
+                    command=lambda: print("your wish, as they say...", random.random()))
+        b1.pack()
+        b2 = Button(master=self, text='Quit', command=self.stop)
+        b2.pack()
 
     async def setup_tkinter_window(self):
         # Setup tkinter window
-        self.window.title("Pycycling")
-        self.window.geometry("800x600")
+        # self.window.title("Pycycling")
+        # self.window.geometry("800x600")
 
-        tk.Label(text="Trainer Trackr 0.1").pack()
-
-        tk.Button(
+        Button(
             text="Click me!",
             width=25,
             height=5,
@@ -48,8 +78,8 @@ class App:
             fg="yellow",
         ).pack()
 
-        while True:
-            self.window.update()
+        # while True:
+        #     self.window.update()
 
     async def main(self):
         await self.setup_tkinter_window()
@@ -82,10 +112,10 @@ class App:
         if self.current_hr_label:
             self.current_hr_label.config(text=data['heart_rate'])
 
-    async def run(self):
-        # TODO(cody): Make this a class, for now just making it a basic function for the final
-        async with BleakClient(TACX_TRAINER_CONTROL_UUID) as trainer_client, BleakClient(POLAR_HR_CONTROL_POINT_UUID) as polar_client:
-            try:
+    async def start(self):
+        try:
+            # TODO(cody): Make this a class, for now just making it a basic function for the final
+            async with BleakClient(TACX_TRAINER_CONTROL_UUID) as trainer_client, BleakClient(POLAR_HR_CONTROL_POINT_UUID) as polar_client:
                 trainer, hr_device = await self.connect_clients(trainer_client=trainer_client, polar_client=polar_client)
                 self.pycycling_clients += [trainer, hr_device]
 
@@ -97,12 +127,8 @@ class App:
                 for segment in training_plan.segments:
                     await trainer.pycycling_client.set_basic_resistance(segment.resistance)
                     await asyncio.sleep(segment.duration)
-            except Exception as ex:
-                print(ex)
-            finally:
-                # Either the connection will fail, where the client list will be empty
-                # or a training event will fail, and we still need to disconnect
-                await self.disconnect_clients()
+        except Exception as ex:
+            print(ex)
 
     async def test_plan(self) -> TrainingPlan:
         # Check for saved training plans
@@ -126,15 +152,19 @@ class App:
         return test_plan
 
 
+async def main():
+    app = App()
+    await app.run()
+
 
 if __name__ == "__main__":
     import os
 
     os.environ["PYTHONASYNCIODEBUG"] = str(1)
 
-    app = App()
+    asyncio.run(main())
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(app.run())
-    loop.create_task(BluetoothHandler().discover_bluetooth_devices())
-    loop.run_forever()
+    # loop = asyncio.get_event_loop()
+    # loop.create_task(app.run())
+    # loop.create_task(BluetoothHandler().discover_bluetooth_devices())
+    # loop.run_forever()
