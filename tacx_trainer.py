@@ -30,6 +30,7 @@ class AsyncTk(Tk):
         super().__init__()
         self.running = True
         self.runners = [self.tk_loop()]
+        self.button_presses = []
 
     async def tk_loop(self):
         "asyncio 'compatible' tk event loop?"
@@ -37,12 +38,18 @@ class AsyncTk(Tk):
         while self.running:
             self.update()
             await asyncio.sleep(0.05) # obviously, sleep time could be parameterized
+            if len(self.button_presses) > 0:
+                await self.button_presses.pop(0)
 
     def stop(self):
         self.running = False
 
     async def run(self):
         await asyncio.gather(*self.runners)
+
+    def add_button_coro(self, coro):
+        task = asyncio.create_task(coro)
+        self.button_presses.append(task)
 
 class App(AsyncTk):
     def __init__(self):
@@ -59,8 +66,15 @@ class App(AsyncTk):
         self.runners.append(BluetoothHandler().discover_bluetooth_devices())
 
     def create_interface(self):
+        Button(
+            text="Click me!",
+            width=25,
+            height=5,
+            bg="blue",
+            fg="yellow",
+        ).pack()
         b1 = Button(master=self, text='Random Float',
-                    command=lambda: print("your wish, as they say...", random.random()))
+                    command=lambda: self.add_button_coro(self.test_plan()))
         b1.pack()
         b2 = Button(master=self, text='Quit', command=self.stop)
         b2.pack()
@@ -135,6 +149,7 @@ class App(AsyncTk):
         test_plan = await TrainingPlan.filter(name__contains='test plan').first()
 
         if not test_plan:
+            print('Creating test plan')
             test_plan = await TrainingPlan.create(name='test plan')
             test_plan.segments.add(SegmentDuration(name='Warmup', duration=10, resistance=20))
             test_plan.segments.add(SegmentDuration(name='Uphill 1', duration=10, resistance=40))
