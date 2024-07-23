@@ -1,3 +1,8 @@
+from bleak import BleakClient
+
+from pycycling.tacx_trainer_control import TacxTrainerControl
+from pycycling.heart_rate_service import HeartRateService
+
 class TrainingDevice:
     def __init__(self, client: BleakClient, pycycling_client: TacxTrainerControl or HeartRateService): # type: ignore
         self.client = client

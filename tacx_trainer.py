@@ -1,29 +1,26 @@
 import asyncio
 import logging
+import tkinter
 
-from tkinter import Button, END, Listbox, MULTIPLE
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient
 from tortoise import Tortoise
 
 from devices.TacxTrainer import TacxTrainer
 from devices.PolarHRMonitor import PolarHRMonitor
 from devices.TrainingDevice import TrainingDevice
 from gui.AsyncTk import AsyncTk
+from gui.frames.BluetoothConnectionFrame import BluetoothConnectionFrame
+from gui.frames.CyclingFrame import CyclingFrame
 
 from pycycling.tacx_trainer_control import TacxTrainerControl
 from pycycling.heart_rate_service import HeartRateService
 from training_plans.test_plan import TestPlan
-from utilities.Observable import Observable
+from utilities.BluetoothHandler import BluetoothHandler
 
 # TODO(cody): Add ability to select trainer and HR monitor from list of available devices
 POLAR_HR_CONTROL_POINT_UUID = "3E4F72D6-D632-1157-0BCD-5B5C673653AE"
 TACX_TRAINER_CONTROL_UUID = "8B9E4197-3BA0-39EF-1290-F82450B4DC00"
 
-
-class BluetoothHandler(Observable):
-    async def discover_bluetooth_devices(self) -> None:
-        self.devices = await BleakScanner.discover()
-        self.notify(devices=self.devices)
 
 class App(AsyncTk):
     def __init__(self):
@@ -36,8 +33,35 @@ class App(AsyncTk):
         self.current_hr_label = None
         self.bluetooth_selector_box = None
 
+        # Main Frame Container
+        container = tkinter.Frame(self)
+        container.pack(side="top", fill="both", expand=True)
+        container.grid_rowconfigure(0, weight=1)
+        container.grid_columnconfigure(0, weight=1)
+
+        # Frames
+        self.cycling_frame = CyclingFrame(container, self)
+        self.cycling_frame.grid(row=0, column=0, sticky="nsew")
+
+        self.connect_frame = BluetoothConnectionFrame(container, self)
+        self.connect_frame.grid(row=0, column=0, sticky="nsew")
+
+        self.frames += [self.connect_frame]
+
         # Set up logging
         self.logger = logging.getLogger(__name__)
+        self.setup_logging()
+
+        # Register bluetooth handler
+        self.bluetooth_handler = BluetoothHandler()
+        self.bluetooth_handler.register(self.connect_frame.bluetooth_notification_received)
+
+        # Kickoff the async event loops
+        self.show_frame(self.connect_frame)
+        self.runners.append(self.setup_tortoise())
+        self.runners.append(self.bluetooth_handler.discover_bluetooth_devices(self.connect_frame))
+
+    def setup_logging(self):
         self.logger.setLevel(logging.DEBUG)
         logging_file_handler = logging.FileHandler('trkr_trainr.log')
         logging_file_handler.setLevel(logging.DEBUG)
@@ -49,34 +73,10 @@ class App(AsyncTk):
         self.logger.addHandler(logging_stream_handler)
         self.logger.addHandler(logging_file_handler)
 
-        # Register bluetooth handler
-        self.bluetooth_handler = BluetoothHandler()
-        self.bluetooth_handler.register(self.bluetooth_notification_received)
-
-        # Kickoff the async event loops
-        self.create_interface()
+    def start_cycling(self):
+        print(f"Starting cycling")
         self.runners.append(self.start())
-        self.runners.append(self.setup_tortoise())
-        self.runners.append(self.bluetooth_handler.discover_bluetooth_devices())
-
-    def create_interface(self):
-        # Need a reference for the observer to update
-        self.bluetooth_selector_box = Listbox(
-            master=self, selectmode=MULTIPLE, height=10, width=50)
-        self.bluetooth_selector_box.pack()
-
-        # Don't need references to these
-        Button(master=self,
-               text="Get Test Plan!",
-               width=25,
-               height=5,
-               command=lambda: self.add_button_coro(TestPlan.generate())
-        ).pack()
-
-        Button(master=self,
-               text='Quit',
-               command=self.stop
-        ).pack()
+        self.cycling_frame.tkraise()
 
     async def setup_tortoise(self):
         await Tortoise.init(
@@ -129,11 +129,6 @@ class App(AsyncTk):
                     await asyncio.sleep(segment.duration)
         except Exception as ex:
             self.logger.info(ex)
-
-    def bluetooth_notification_received(self, devices):
-        for device in devices:
-            self.logger.info(device)
-            self.bluetooth_selector_box.insert(END, device.name)
 
 
 async def main():
