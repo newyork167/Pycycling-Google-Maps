@@ -93,16 +93,14 @@ class App(AsyncTk):
         await asyncio.sleep(4)
         await self.async_show_frame(self.cycling_frame)
 
-        training_plan = await TestPlan.generate()
-
-        for segment in training_plan.segments:
-            self.logger.info(f"Setting resistance to {segment.resistance}")
+        for segment in range(100):
             self.cycling_frame.receive_hr_data(bpm=random.randint(45, 50))
-            self.cycling_frame.receive_cadence_data(cadence=random.randint(80, 90))
-            self.cycling_frame.receive_speed_data(speed=random.randint(20, 22))
-            self.cycling_frame.receive_resistance_data(resistance=segment.resistance)
+            self.cycling_frame.receive_cadence_data(cadence=random.randint(85, 89))
+            self.cycling_frame.receive_speed_data(speed=random.randint(20, 21))
+            if segment % 10 == 0:
+                self.cycling_frame.receive_resistance_data(resistance=random.randint(30, 70))
             self.update()
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
     async def start(self):
         self.show_frame(self.connecting_frame)
