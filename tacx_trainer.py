@@ -3,18 +3,19 @@ import logging
 import tkinter
 
 from bleak import BleakClient
+from tkinter import messagebox
 from tortoise import Tortoise
 
-from devices.TacxTrainer import TacxTrainer
+from cycling.TacxCycling import TacxCycling
 from devices.PolarHRMonitor import PolarHRMonitor
-from devices.TrainingDevice import TrainingDevice
+from devices.TacxTrainer import TacxTrainer
 from gui.AsyncTk import AsyncTk
 from gui.frames.BluetoothConnectionFrame import BluetoothConnectionFrame
 from gui.frames.CyclingFrame import CyclingFrame
-
-from pycycling.tacx_trainer_control import TacxTrainerControl
+from gui.frames.ConnectingFrame import BluetoothConnectingFrame
 from pycycling.heart_rate_service import HeartRateService
-from training_plans.test_plan import TestPlan
+from pycycling.tacx_trainer_control import TacxTrainerControl
+
 from utilities.BluetoothHandler import BluetoothHandler
 
 # TODO(cody): Add ability to select trainer and HR monitor from list of available devices
@@ -26,12 +27,11 @@ class App(AsyncTk):
     def __init__(self):
         super().__init__()
 
-        self.pycycling_clients = []
+        # Set up logging
+        self.logger = logging.getLogger(__name__)
+        self.setup_logging()
 
-        self.current_cadence_label = None
-        self.current_speed_label = None
-        self.current_hr_label = None
-        self.bluetooth_selector_box = None
+        self.pycycling_clients = []
 
         # Main Frame Container
         container = tkinter.Frame(self)
@@ -42,15 +42,14 @@ class App(AsyncTk):
         # Frames
         self.cycling_frame = CyclingFrame(container, self)
         self.cycling_frame.grid(row=0, column=0, sticky="nsew")
-
         self.connect_frame = BluetoothConnectionFrame(container, self)
         self.connect_frame.grid(row=0, column=0, sticky="nsew")
+        self.connecting_frame = BluetoothConnectingFrame(container, self)
+        self.connecting_frame.grid(row=0, column=0, sticky="nsew")
+        self.frames += [self.connect_frame, self.cycling_frame, self.connecting_frame]
 
-        self.frames += [self.connect_frame]
-
-        # Set up logging
-        self.logger = logging.getLogger(__name__)
-        self.setup_logging()
+        # Tacx Cycling Instance
+        self.tacx_cycler = TacxCycling(logger=self.logger)
 
         # Register bluetooth handler
         self.bluetooth_handler = BluetoothHandler()
@@ -74,9 +73,9 @@ class App(AsyncTk):
         self.logger.addHandler(logging_file_handler)
 
     def start_cycling(self):
-        print(f"Starting cycling")
-        self.runners.append(self.start())
-        self.cycling_frame.tkraise()
+        print(f"Connecting!")
+        self.show_frame(self.connecting_frame)
+        self.add_button_coro(self.start())
 
     async def setup_tortoise(self):
         await Tortoise.init(
@@ -86,49 +85,33 @@ class App(AsyncTk):
         # Generate the schema
         await Tortoise.generate_schemas()
 
-    async def connect_clients(self, trainer_client: BleakClient, polar_client: BleakClient) -> list[TrainingDevice]:
-        # Generalize later
-        clients = []
-
-        await trainer_client.is_connected()
-        await polar_client.is_connected()
-
-        clients += [TacxTrainer(trainer_client, TacxTrainerControl(trainer_client)),
-                    PolarHRMonitor(polar_client, HeartRateService(polar_client))]
-        for client in clients:
-            await client.on_connect()
-
-        return clients
-
-    async def disconnect_clients(self):
-        for pycycling_client in self.pycycling_clients:
-            await pycycling_client.on_disconnect()
-
-    def trainer_page_handler(self, data):
-        self.logger.info(data)
-
-    def heart_rate_page_handler(self, data):
-        self.logger.info(data)
-
-        if self.current_hr_label:
-            self.current_hr_label.config(text=data['heart_rate'])
-
     async def start(self):
+        self.show_frame(self.connecting_frame)
+
         try:
-            async with BleakClient(TACX_TRAINER_CONTROL_UUID) as trainer_client, BleakClient(POLAR_HR_CONTROL_POINT_UUID) as polar_client:
-                trainer, hr_device = await self.connect_clients(trainer_client=trainer_client, polar_client=polar_client)
+            selected_cycling_devices = self.connect_frame.cycling_bluetooth_selector_box.curselection()
+            if len(selected_cycling_devices) == 0:
+                raise Exception('Please select a cycling device')
+
+            selected_hr_devices = self.connect_frame.hr_bluetooth_selector_box.curselection()
+            if len(selected_hr_devices) == 0:
+                raise Exception('Please select a HR device')
+
+            cycling_bluetooth_device = BleakClient(self.connect_frame.bluetooth_devices[selected_cycling_devices[0]])
+            hr_bluetooth_device = BleakClient(self.connect_frame.bluetooth_devices[selected_hr_devices[0]])
+
+            TacxTrainerClient = TacxTrainer(client=cycling_bluetooth_device, pycycling_client=TacxTrainerControl(cycling_bluetooth_device))
+            HeartRateClient = PolarHRMonitor(client=hr_bluetooth_device, pycycling_client=HeartRateService(hr_bluetooth_device))
+
+            with TacxTrainerClient.client as trainer_client, HeartRateClient.client as polar_client:
+                trainer, hr_device = await self.tacx_cycler.connect_clients(trainer_client=trainer_client, polar_client=polar_client)  # TODO: Decouple this
                 self.pycycling_clients += [trainer, hr_device]
-
-                await trainer.setup_page_handler(page_handler=self.trainer_page_handler)
-                await hr_device.setup_page_handler(page_handler=self.heart_rate_page_handler)
-
-                training_plan = await TestPlan.generate()
-
-                for segment in training_plan.segments:
-                    await trainer.pycycling_client.set_basic_resistance(segment.resistance)
-                    await asyncio.sleep(segment.duration)
+                # self.cycling_frame.tkraise()
+                self.show_frame(self.cycling_frame)
         except Exception as ex:
+            messagebox.showinfo('Error', f'Error connecting to devices: {ex}')
             self.logger.info(ex)
+            self.show_frame(self.connect_frame)
 
 
 async def main():

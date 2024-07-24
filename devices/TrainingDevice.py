@@ -16,3 +16,6 @@ class TrainingDevice:
 
     async def setup_page_handler(self, page_handler: callable):
         pass
+
+    async def setup(self):
+        pass

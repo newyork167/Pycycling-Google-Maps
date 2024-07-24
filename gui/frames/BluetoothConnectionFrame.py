@@ -1,28 +1,33 @@
-from tkinter import Tk, Frame, Button, Label, Listbox, MULTIPLE, END
+from tkinter import Tk, Frame, Button, Label, Listbox, MULTIPLE, END, SINGLE
 
 from training_plans.test_plan import TestPlan
 
 
 class BluetoothConnectionFrame(Frame):
-    bluetooth_selector_box = None
+    cycling_bluetooth_selector_box = None
+    bluetooth_devices = []
 
     def __init__(self, parent, controller):
         Frame.__init__(self, parent)
 
-        Label(master=self, text="Select Bluetooth Devices:").pack()
+        Label(master=self, text="Select Cycling Bluetooth Device:").pack()
 
-        self.bluetooth_selector_box = Listbox(
-            master=self, selectmode=MULTIPLE, height=10, width=50)
-        self.bluetooth_selector_box.pack()
+        self.cycling_bluetooth_selector_box = Listbox(
+            exportselection=0,
+            master=self,
+            selectmode=SINGLE,
+            height=10,
+            width=50)
+        self.cycling_bluetooth_selector_box.pack()
 
-        # Don't need references to these
-        Button(master=self,
-               text="Get Test Plan!",
-               width=25,
-
-               height=5,
-               command=lambda: controller.add_button_coro(TestPlan.generate())
-               ).pack()
+        Label(master=self, text="Select HR Bluetooth Device:").pack()
+        self.hr_bluetooth_selector_box = Listbox(
+            exportselection=0,
+            master=self,
+            selectmode=SINGLE,
+            height=10,
+            width=50)
+        self.hr_bluetooth_selector_box.pack()
 
         Button(master=self,
                text="START!",
@@ -39,4 +44,6 @@ class BluetoothConnectionFrame(Frame):
 
     def bluetooth_notification_received(self, devices):
         for device in devices:
-            self.bluetooth_selector_box.insert(END, device.name)
+            self.bluetooth_devices.append(device)
+            self.cycling_bluetooth_selector_box.insert(END, device.name)
+            self.hr_bluetooth_selector_box.insert(END, device.name)
