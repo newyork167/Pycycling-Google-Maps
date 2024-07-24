@@ -37,4 +37,4 @@ class PolarHRMonitor(HRMonitor, Observable):
 
     def default_heart_rate_page_handler(self, data):
         print(data)
-        self.notify(hr_data=data)
+        self.notify(bpm=data['bpm'])

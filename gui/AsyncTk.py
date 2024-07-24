@@ -43,6 +43,11 @@ class AsyncTk(Tk):
 
     def show_frame(self, frame):
         frame.tkraise()
+        self.update()
+
+    async def async_show_frame(self, frame):
+        frame.tkraise()
+        self.update()
 
     def show_frame_at_index(self, cont):
         self.show_frame(self.frames[cont])

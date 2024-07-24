@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import random
 import tkinter
+from random import Random
 
 from bleak import BleakClient
 from tkinter import messagebox
@@ -15,6 +17,7 @@ from gui.frames.CyclingFrame import CyclingFrame
 from gui.frames.ConnectingFrame import BluetoothConnectingFrame
 from pycycling.heart_rate_service import HeartRateService
 from pycycling.tacx_trainer_control import TacxTrainerControl
+from training_plans.test_plan import TestPlan
 
 from utilities.BluetoothHandler import BluetoothHandler
 
@@ -75,7 +78,7 @@ class App(AsyncTk):
     def start_cycling(self):
         print(f"Connecting!")
         self.show_frame(self.connecting_frame)
-        self.add_button_coro(self.start())
+        self.add_button_coro(self.test())
 
     async def setup_tortoise(self):
         await Tortoise.init(
@@ -84,6 +87,22 @@ class App(AsyncTk):
         )
         # Generate the schema
         await Tortoise.generate_schemas()
+
+    async def test(self):
+        self.show_frame(self.connecting_frame)
+        await asyncio.sleep(4)
+        await self.async_show_frame(self.cycling_frame)
+
+        training_plan = await TestPlan.generate()
+
+        for segment in training_plan.segments:
+            self.logger.info(f"Setting resistance to {segment.resistance}")
+            self.cycling_frame.receive_hr_data(bpm=random.randint(45, 50))
+            self.cycling_frame.receive_cadence_data(cadence=random.randint(80, 90))
+            self.cycling_frame.receive_speed_data(speed=random.randint(20, 22))
+            self.cycling_frame.receive_resistance_data(resistance=segment.resistance)
+            self.update()
+            await asyncio.sleep(2)
 
     async def start(self):
         self.show_frame(self.connecting_frame)
@@ -106,8 +125,14 @@ class App(AsyncTk):
             with TacxTrainerClient.client as trainer_client, HeartRateClient.client as polar_client:
                 trainer, hr_device = await self.tacx_cycler.connect_clients(trainer_client=trainer_client, polar_client=polar_client)  # TODO: Decouple this
                 self.pycycling_clients += [trainer, hr_device]
-                # self.cycling_frame.tkraise()
-                self.show_frame(self.cycling_frame)
+                await self.async_show_frame(self.cycling_frame)
+
+                training_plan = await TestPlan.generate()
+
+                for segment in training_plan.segments:
+                    self.logger.info(f"Setting resistance to {segment.resistance}")
+                    await trainer.set_resistance(segment.resistance)
+                    await asyncio.sleep(segment.duration)
         except Exception as ex:
             messagebox.showinfo('Error', f'Error connecting to devices: {ex}')
             self.logger.info(ex)
