@@ -13,4 +13,8 @@ class Observable:
 
     def notify(self, *args, **kwargs):
         for observer in self.observers:
-            observer(*args, **kwargs)
+            try:
+                observer(*args, **kwargs)
+            except Exception as e:
+                # Janky way to notify different method signatures
+                print(f"Error notifying observer {observer}: {e}")

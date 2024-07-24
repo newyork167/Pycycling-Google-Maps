@@ -120,6 +120,10 @@ class App(AsyncTk):
             TacxTrainerClient = TacxTrainer(client=cycling_bluetooth_device, pycycling_client=TacxTrainerControl(cycling_bluetooth_device))
             HeartRateClient = PolarHRMonitor(client=hr_bluetooth_device, pycycling_client=HeartRateService(hr_bluetooth_device))
 
+            TacxTrainerClient.register(self.cycling_frame.receive_speed_data)
+            TacxTrainerClient.register(self.cycling_frame.receive_cadence_data)
+            HeartRateClient.register(self.cycling_frame.receive_hr_data)
+
             with TacxTrainerClient.client as trainer_client, HeartRateClient.client as polar_client:
                 trainer, hr_device = await self.tacx_cycler.connect_clients(trainer_client=trainer_client, polar_client=polar_client)  # TODO: Decouple this
                 self.pycycling_clients += [trainer, hr_device]
@@ -130,6 +134,7 @@ class App(AsyncTk):
                 for segment in training_plan.segments:
                     self.logger.info(f"Setting resistance to {segment.resistance}")
                     await trainer.set_resistance(segment.resistance)
+                    self.cycling_frame.receive_resistance_data(resistance=segment.resistance)  # change to notify at some point
                     await asyncio.sleep(segment.duration)
         except Exception as ex:
             messagebox.showinfo('Error', f'Error connecting to devices: {ex}')
