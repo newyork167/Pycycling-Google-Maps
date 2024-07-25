@@ -7,7 +7,7 @@ from devices.TacxTrainer import TacxTrainer
 from devices.TrainingDevice import TrainingDevice
 from pycycling.heart_rate_service import HeartRateService
 from pycycling.tacx_trainer_control import TacxTrainerControl
-from training_plans.test_plan import TestPlan
+from training_plans.TestPlan import TestPlan
 
 
 class TacxCycling:

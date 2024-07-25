@@ -9,6 +9,8 @@ from tkinter import messagebox
 from tortoise import Tortoise
 
 from cycling.TacxCycling import TacxCycling
+from db_models import Device
+from db_models.Device import DeviceFactory
 from devices.PolarHRMonitor import PolarHRMonitor
 from devices.TacxTrainer import TacxTrainer
 from gui.AsyncTk import AsyncTk
@@ -17,7 +19,7 @@ from gui.frames.CyclingFrame import CyclingFrame
 from gui.frames.ConnectingFrame import BluetoothConnectingFrame
 from pycycling.heart_rate_service import HeartRateService
 from pycycling.tacx_trainer_control import TacxTrainerControl
-from training_plans.test_plan import TestPlan
+from training_plans.TestPlan import TestPlan
 
 from utilities.BluetoothHandler import BluetoothHandler
 
@@ -78,6 +80,11 @@ class App(AsyncTk):
     def start_cycling(self):
         print(f"Connecting!")
         self.show_frame(self.connecting_frame)
+        self.add_button_coro(self.start())
+
+    def start_test(self):
+        print(f"Testing!")
+        self.show_frame(self.connecting_frame)
         self.add_button_coro(self.test())
 
     async def setup_tortoise(self):
@@ -104,6 +111,7 @@ class App(AsyncTk):
 
     async def start(self):
         self.show_frame(self.connecting_frame)
+        self.geometry("750x250")
 
         try:
             selected_cycling_devices = self.connect_frame.cycling_bluetooth_selector_box.curselection()
@@ -117,14 +125,17 @@ class App(AsyncTk):
             cycling_bluetooth_device = BleakClient(self.connect_frame.bluetooth_devices[selected_cycling_devices[0]])
             hr_bluetooth_device = BleakClient(self.connect_frame.bluetooth_devices[selected_hr_devices[0]])
 
-            TacxTrainerClient = TacxTrainer(client=cycling_bluetooth_device, pycycling_client=TacxTrainerControl(cycling_bluetooth_device))
-            HeartRateClient = PolarHRMonitor(client=hr_bluetooth_device, pycycling_client=HeartRateService(hr_bluetooth_device))
+            tacx_trainer_client = TacxTrainer(client=cycling_bluetooth_device, pycycling_client=TacxTrainerControl(cycling_bluetooth_device))
+            heart_rate_client = PolarHRMonitor(client=hr_bluetooth_device, pycycling_client=HeartRateService(hr_bluetooth_device))
 
-            TacxTrainerClient.register(self.cycling_frame.receive_speed_data)
-            TacxTrainerClient.register(self.cycling_frame.receive_cadence_data)
-            HeartRateClient.register(self.cycling_frame.receive_hr_data)
+            await DeviceFactory.generate(training_device=tacx_trainer_client)
+            await DeviceFactory.generate(training_device=heart_rate_client)
 
-            with TacxTrainerClient.client as trainer_client, HeartRateClient.client as polar_client:
+            tacx_trainer_client.register(self.cycling_frame.receive_speed_data)
+            tacx_trainer_client.register(self.cycling_frame.receive_cadence_data)
+            heart_rate_client.register(self.cycling_frame.receive_hr_data)
+
+            with tacx_trainer_client.client as trainer_client, heart_rate_client.client as polar_client:
                 trainer, hr_device = await self.tacx_cycler.connect_clients(trainer_client=trainer_client, polar_client=polar_client)  # TODO: Decouple this
                 self.pycycling_clients += [trainer, hr_device]
                 await self.async_show_frame(self.cycling_frame)

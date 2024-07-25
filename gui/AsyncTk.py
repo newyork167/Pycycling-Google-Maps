@@ -5,7 +5,6 @@ from tortoise import Tortoise
 
 
 class AsyncTk(Tk):
-    "Basic Tk with an asyncio-compatible event loop"
     def __init__(self):
         super().__init__()
         self.running = True
@@ -16,11 +15,9 @@ class AsyncTk(Tk):
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     async def tk_loop(self):
-        "asyncio 'compatible' tk event loop?"
-        # Is there a better way to trigger loop exit than using a state vrbl?
         while self.running:
             self.update()
-            await asyncio.sleep(0.05) # obviously, sleep time could be parameterized
+            await asyncio.sleep(0.05)
             if len(self.button_presses) > 0:
                 await self.button_presses.pop(0)
         await Tortoise.close_connections()

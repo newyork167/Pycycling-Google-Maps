@@ -31,7 +31,7 @@ class TacxTrainer(TrainingDevice, Observable):
 
     def default_specific_trainer_page_handler(self, data):
         print(data)
-        self.notify(instantaneous_cadence=data['instantaneous_cadence'])
+        self.notify(cadence=data['instantaneous_cadence'])
 
     def default_general_trainer_page_handler(self, data):
         print(data)
